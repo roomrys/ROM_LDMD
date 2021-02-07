@@ -15,7 +15,7 @@ gfields  = fieldnames(gauges_struct);
 disp('Starting data analysis...')
 tstart = tic;
 amd = mins_AMR(gauges_struct, gfields);
-runtimes.('DataAnalysis') = toc(tstart);
+runtimes.('DataAnalysis') = toc(tstart)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % 2. prep data
 disp('Starting data preparation...')
@@ -34,7 +34,7 @@ g_3D = g_3D(:, 4:6, :);  % extract [x, y, eta] where eta surface level (water he
 
 % flatten along time dimension and transpose s.t. all times in single column 3D --> 2D
 g_3D = reshape(g_3D, [size(g_3D, 1), (size(g_3D, 2) * size(g_3D, 3))])';
-runtimes.('DataPrep') = toc(tstart);
+runtimes.('DataPrep') = toc(tstart)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % 3. Lagrangian DMD
 disp('Starting Lagrangian DMD...')
@@ -42,7 +42,7 @@ tstart = tic;
 [Phi, D] = lDMD(g_3D);
 % get IC b = pinv(Phi)* x0
 b = Phi \ g_3D(:, 1);
-runtimes.('LDMD') = toc(tstart);
+runtimes.('LDMD') = toc(tstart)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % 4. start making predictions
 disp('Starting predictions...')
@@ -53,7 +53,7 @@ for i = 2:num_pred
     Y_next = real(Phi * diag(diag(D) .^ i) * b);
     Y_pred(:, i) = Y_next;
 end
-runtimes.('Predict') = toc(tstart);
+runtimes.('Predict') = toc(tstart)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % 5. plot error e = yn - yn_DMD
 disp('Starting error analysis...')
@@ -69,7 +69,7 @@ e_x = vecnorm(g_3D(1:3:min_row, 1:min_col) - Y_pred(1:3:min_row, 1:min_col));
 e_y = vecnorm(g_3D(2:3:min_row, 1:min_col) - Y_pred(2:3:min_row, 1:min_col));
 e_eta = vecnorm(g_3D(3:3:min_row, 1:min_col) - Y_pred(3:3:min_row, 1:min_col));
 figure()
-plot(e_tot, 'LineWidth', 0.8)
+plot(e_tot)
 hold on
 plot(e_x)
 plot(e_y)
@@ -79,7 +79,7 @@ title('Error: e^n = y^n - y_{DMD}^n')
 xlabel('time step (n)')
 ylabel('error (e)')
 legend('e_{tot}', 'e_x', 'e_y', 'e_{eta}')
-runtimes.('ErrorAnalysis') = toc(tstart);
+runtimes.('ErrorAnalysis') = toc(tstart)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % 5. create video for prediction, train, (and test)
 disp('Creating output videos...')
@@ -115,7 +115,7 @@ AMD.xy0_AMR1_all = []; AMD.xy0_AMR2_all = []; AMD.xy0_AMRb_all = [];
 AMD.xyT_AMR2_all = [];
 AMD.mins_AMR1 = Inf; AMD.mins_AMR2 = Inf; AMD.mins_AMRb = Inf;
 AMD.gmin_AMR1 = 'None'; AMD.gmin_AMR2 = 'None'; AMD.gmin_AMRb = 'None';
-% categorize AMR L1, L2, and L3 data
+% extract AMR L1, L2, and 
 for i = 1:numel(gfields)
     g_mat = gauges_struct.(gfields{i});
     % multiply first column (AMR level #: 1 or 2) by ones vector
@@ -150,11 +150,10 @@ end
 % at final time step, get rid of outlier AMR2 gauges using Mahalanobis distance
 g2fields  = fieldnames(AMD.list_AMR2);
 m_dist = mahal(AMD.xyT_AMR2_all', AMD.xyT_AMR2_all');
-ptol = 0.9;
 mean_mdist = mean(m_dist);
 OOB_fields = {};
 for i = 1:numel(g2fields)
-    if m_dist(i) > (mean_mdist * ptol)
+    if m_dist(i) > mean_mdist
         OOB_fields{end+1} = g2fields{i};
     end
 end
