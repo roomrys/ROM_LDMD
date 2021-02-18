@@ -1,0 +1,10 @@
+The variables in Lagrangian DMD are:
+- density of gauges (number/area)
+- data points used
+- number time steps
+- rank truncation
+- initial data movement (no shocks allowed!)
+
+label with sufffix:
+suffix1 = '_[SIMULATION #]_[# GAUGES]_[# time steps]'
+suffix2 = suffix1 + '_[rank truncation]'
