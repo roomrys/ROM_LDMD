@@ -5,7 +5,7 @@ clear all
 close all
 global sim_number showFigs
 showFigs = 'off';
-sim_number = 7;
+sim_number = 6;
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % 0. load data (in form [level, time, q[1], x, y, aux] R:(N x 6))
 disp('Loading data...')
@@ -31,23 +31,22 @@ runtimes.('DataAnalysis') = toc(tstart);
 disp('Starting data preparation...')
 tstart = tic;
 g_3Da = prep_data(amd);
-params.cutoff_idx = round(size(g_3Da, 2)*2/5);
+params.cutoff_idx = round(size(g_3Da, 2)*4/5);
 global cutoff
 cutoff = params.cutoff_idx;
 g_3D = g_3Da(:, 1:params.cutoff_idx); % only use half the data for training
 runtimes.('DataPrep') = toc(tstart);
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % X. user variables
-params.create_vid = false;
+params.create_vid = true;
 params.num_frames = 300;
 params.num_pred = size(g_3Da, 1);
 params.grid_res = 10;
-r = fliplr(76:4:80); %'Compute'
+r = fliplr(64:4:80); %'Compute'
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 rtime_all = [];
 error_all = [];
 for rank = r
-    close all
     disp(["rank = " num2str(rank)])
 % 3. Lagrangian DMD
 disp('Starting Lagrangian DMD...')
@@ -580,13 +579,13 @@ for i = 1:min(size(Y_predX, 2), num_frames)
     ylabel('Direction of Flow (m)')
     xlabel({'Direction $\perp$ to Flow (m)'}, 'interpreter', 'latex')
     zlabel('Water Height (m)')
-    legend('Interpolated Surface', 'Reduced Order Model', 'Full Order Model')
+    legend('Surface: Predicted', 'Data: Predicted', 'Data: Reference', 'Location','best')
     writeVideo(v, getframe(gcf));
 end
 close(v)
 title({['\textbf{Final time snapshot | ' ttl '}']
     ['t = ' num2str(t(i))]}, 'interpreter', 'latex')
-legend('Interpolated Surface', 'Reduced Order Model', 'Full Order Model')
+legend('Surface: Predicted', 'Data: Predicted', 'Data: Reference')
 saveas(gcf, [pwd '\Plots\Waveform Snapshot\' ttl '-T'...
     num2str(mdist_min) suffix2 '.png'])
 end
