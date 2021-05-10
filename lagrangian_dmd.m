@@ -1,11 +1,14 @@
 % Physics Aware DMD
-% note: maybe try removing data points that are stuck only when plotting?
+% note: each field in g_struct has following format--
+% # level, time, q[  1  2  3], eta, aux[]
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 clear all
 close all
-global sim_number showFigs
+global sim_number showFigs err isScaled
+sim_number = 9;
 showFigs = 'off';
-sim_number = 7;
+err = 2;
+isScaled = false;
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % 0. load data (in form [level, time, q[1], x, y, aux] R:(N x 6))
 disp('Loading data...')
@@ -24,14 +27,15 @@ runtimes.('LoadData') = toc(tstart);
 % 1. data analysis: adaptive mesh refinement
 disp('Starting data analysis...')
 tstart = tic;
-amd = mins_AMR(gauges_struct, gfields);
+amr2 = categorize_AMR(gauges_struct);
 runtimes.('DataAnalysis') = toc(tstart);
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % 2. prep data
 disp('Starting data preparation...')
 tstart = tic;
-g_3Da = prep_data(amd);
-params.cutoff_idx = round(size(g_3Da, 2)*2/5);
+[g_3Da, scale] = prep_data(gauges_struct, amr2, isScaled);
+scale
+params.cutoff_idx = round(size(g_3Da, 2)*0.8);
 global cutoff
 cutoff = params.cutoff_idx;
 g_3D = g_3Da(:, 1:params.cutoff_idx); % only use half the data for training
@@ -40,97 +44,113 @@ runtimes.('DataPrep') = toc(tstart);
 % X. user variables
 params.create_vid = false;
 params.num_frames = 300;
-params.num_pred = size(g_3Da, 1);
+params.num_pred = size(g_3Da, 2);
 params.grid_res = 10;
-r = fliplr(76:4:80); %'Compute'
+g2_fields = fieldnames(amr2.gauge_numbers);
+params.cutoff_time = gauges_struct.(g2_fields{1})(params.cutoff_idx, 2);
+r = fliplr(4:4:68); %'Compute'
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 rtime_all = [];
 error_all = [];
 for rank = r
     close all
     disp(["rank = " num2str(rank)])
-% 3. Lagrangian DMD
+% 3. LDMD Offline: Lagrangian DMD
 disp('Starting Lagrangian DMD...')
 tstart = tic;
 [Phi, D, b, t_svd] = lDMD(g_3D, rank);
+save([pwd '\Matrices\LDMD Spectral Analysis\D' get_suffix1 '.mat'], 'D')
 runtimes.('Offline') = toc(tstart) + t_svd;
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% 4. start making predictions
+% 4. LDMD Online: start making predictions
 disp('Starting predictions...')
 tstart = tic();
 Y_pred = predict_DMD(g_3D, Phi, D, b, params);
 runtimes.('Online') = toc(tstart);
 rtime_all = [rtime_all; [runtimes.('Offline'), runtimes.('Online')]];
+% scale back to normal size
+if isScaled
+    for i = (1:3)
+        g_3Da(i:3:end, :) = g_3Da(i:3:end, :) * scale(i);
+        Y_pred(i:3:end, :) = Y_pred(i:3:end, :) * scale(i);
+    end
+end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % 5. plot error e = yn - yn_DMD
 disp('Starting error analysis...')
 tstart = tic;
-[e_tot, e_x, e_y, e_eta] = error_analysis(g_3Da, Y_pred, amd, params);
+[e_x, e_y, e_eta] = error_analysis(g_3Da, Y_pred, amr2, gauges_struct, params);
 runtimes.('ErrorAnalysis') = toc(tstart);
-error_all = [error_all; [max(e_tot), max(e_x), max(e_y), max(e_eta)]];
+error_all = [error_all; [mean(e_x(1:params.cutoff_idx)),...
+    mean(e_y(1:params.cutoff_idx)), mean(e_eta(1:params.cutoff_idx))]];
 
 % plot rank dependent plots
 if ~isequal('Compute', r) && (rank == r(end)) && (numel(r) > 1)
     % error vs. rank plot
     figure('visible', 'on')
-    hold on
-    plot(r, error_all(:, 1), 'k-', 'LineWidth', 2)
-    plot(r, error_all(:, 2), 'b--', 'LineWidth', 2)
-    plot(r, error_all(:, 3), 'g-.', 'LineWidth', 2)
-    plot(r, error_all(:, 4), 'r:', 'LineWidth', 2)
-    hold off
-    title({['\textbf{Relative Error of Reference Wave vs. DMD Predicted Wave}']
-            ['$\arg\max_n e^n = \arg\max_n \frac{\vert\vert \xi^n - \xi_{DMD}^n \vert\vert_2}{\vert\vert \xi^n \vert\vert_2}$']}, 'interpreter', 'latex')
+    plot(r, error_all(:, 1),'b--o', r, error_all(:, 2),'g-.^',...
+        r, error_all(:, 3), 'r:v','LineWidth', 2)
+%     grid on
+    ttl = ['\textbf{Average Relative Error} $\mathbf{\bar{e}^n}$ \textbf{of FOM Wave vs. ROM Wave}'];
+    if err == 2
+        title({ttl
+                ['where $e^n = \frac{\Vert \xi^n - \xi_{DMD}^n \Vert_2}{\Vert \xi^n \Vert_2}$']}, 'interpreter', 'latex')
+    else 
+        title({ttl
+                ['where $e^n = \frac{\Vert \xi^n - \xi_{DMD}^n \Vert_2}{\max \vert \xi^n \vert}$']}, 'interpreter', 'latex')
+    end
     xlabel('rank, r', 'interpreter', 'latex')
-    ylabel('max error (\%)', 'interpreter', 'latex')
-    legend('e_{tot}', 'e_{x}', 'e_{y}', 'e_{\eta}')
+    ylabel('average error (\%)', 'interpreter', 'latex')
+    legend('$\bar{e}_{x}$', '$\bar{e}_{y}$', '$\bar{e}_{\eta}$', 'interpreter', 'latex', 'Location', 'best')
+    ylim([min(min(error_all))*0.9, max(max(error_all))*1.1])
     suffix2 = get_suffix2;
-    saveas(gcf, [pwd '\Plots\Error\error_rank' suffix2 '.png'])
+    saveas(gcf, [pwd '\Plots\Error' num2str(err) '\error_train' suffix2 '.png'])
+    save([pwd '\Matrices\Error' num2str(err) '\error_train' suffix2 '.mat'], 'error_all')
 
     % runtime vs. rank plot
     figure('visible', 'on')
     hold on
-    plot(r, params.GC_time*ones(size(rtime_all(:, 2))), 'k-', 'LineWidth', 2)
-    plot(r, rtime_all(:, 1) + rtime_all(:, 2), 'g--', 'LineWidth', 2)
-    plot(r, rtime_all(:, 1), 'b-.', 'LineWidth', 2)
-    plot(r, rtime_all(:, 2), 'r:', 'LineWidth', 2)
+    semilogy(r, params.GC_time*ones(size(rtime_all(:, 2))), 'k-x',...
+        r, rtime_all(:, 1) + rtime_all(:, 2), 'g--o',...
+        r, rtime_all(:, 1), 'b-.^',...
+        r, rtime_all(:, 2), 'r:v', 'LineWidth', 2)
     hold off
+    grid on
     title('Lagrangian DMD Runtime vs. Rank')
     xlabel('rank, r')
     ylabel('runtime (s)')
     legend('GeoClaw', 'LDMD Total', 'LDMD Offline', 'LDMD Online')
     suffix2 = get_suffix2;
     saveas(gcf, [pwd '\Plots\Runtime\runtime_rank' suffix2 '.png'])
+    save([pwd '\Matrices\Runtime\rtime_all' suffix2 '.mat'], 'rtime_all')
     
     % speed-up factor vs rank plot
     figure('visible', 'on')
-    hold on
-    plot(r, params.GC_time./(rtime_all(:, 1) + rtime_all(:, 2)), 'g--', 'LineWidth', 2)
-    hold off
+    speed_up = params.GC_time./(rtime_all(:, 1) + rtime_all(:, 2));
+    plot(r, speed_up, 'g--', 'LineWidth', 2)
     title({['\textbf{Speed-Up Factor}']
         ['$\frac{\textrm{GeoClaw runtime}}{\textrm{LDMD runtime}}$']}, 'interpreter', 'latex')
     xlabel('rank, r')
     ylabel('speed-up factor')
     suffix2 = get_suffix2;
     saveas(gcf, [pwd '\Plots\Runtime\speedup_rank' suffix2 '.png'])
+    save([pwd '\Matrices\Runtime\speed_up' suffix2 '.mat'], 'speed_up')
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% 5. create video for comparison, prediction only, and actual only
+% 6. create video for comparison, prediction only, and actual only
 disp('Creating output videos...')
 tstart = tic;
 if params.create_vid
-    T = min(size(Y_pred, 2), size(g_3Da, 2));
-    create_comp_video('comparison', Y_pred, g_3Da,...
-        params.num_frames, params.grid_res, T, amd)
-    create_video('predict', Y_pred(:, 1:T), params.num_frames,...
-        params.grid_res, T, amd)
-    create_video('actual', g_3Da(:, 1:T), params.num_frames,...
-        params.grid_res, T, amd)
+    params.T = min(size(Y_pred, 2), size(g_3Da, 2));
+    create_comp_video('ROMvsFOM', Y_pred, g_3Da, params, amr2, gauges_struct)
+    create_video('ROM', Y_pred(:, 1:params.T), params, amr2, gauges_struct)
+    create_video('FOM', g_3Da(:, 1:params.T), params, amr2, gauges_struct)
 end
 runtimes.('CreateVideos') = toc(tstart)
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%6. program total run time analysis
+%7. program total run time analysis
 figure  %('visible', showFigs)
 rt = cell2mat(struct2cell(runtimes));
 bar(rt)
@@ -144,496 +164,3 @@ suffix2 = get_suffix2;
 saveas(gcf, [pwd '\Plots\Runtime\program_runtime' suffix2 '.png'])
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Functions
-function [e_tot, e_x, e_y, e_eta] = error_analysis(g_3D, Y_pred, amd, params)
-    global showFigs
-    % find minimum dimensions
-    [row_g3D, col_g3D] = size(g_3D);
-    [row_Ypred, col_Ypred] = size(Y_pred);
-    min_col = min(col_g3D, col_Ypred);
-    min_row = min(row_g3D, row_Ypred);
-    % total error of each predicted observable
-    e_tot = 100*vecnorm(g_3D(1:min_row, 1:min_col) - Y_pred(1:min_row, 1:min_col))...
-        ./ vecnorm(g_3D(1:min_row, 1:min_col));
-    e_x = 100*vecnorm(g_3D(1:3:min_row, 1:min_col) - Y_pred(1:3:min_row, 1:min_col))...
-        ./ vecnorm(g_3D(1:min_row, 1:min_col));
-    e_y = 100*vecnorm(g_3D(2:3:min_row, 1:min_col) - Y_pred(2:3:min_row, 1:min_col))...
-        ./ vecnorm(g_3D(1:min_row, 1:min_col));
-    e_eta = 100*vecnorm(g_3D(3:3:min_row, 1:min_col) - Y_pred(3:3:min_row, 1:min_col))...
-        ./ vecnorm(g_3D(1:min_row, 1:min_col));
-    g2_fields = fieldnames(amd.list_AMR2);
-    t = amd.list_AMR2.(g2_fields{1})(1:amd.mins_AMR2, 2);
-    min_t = min(numel(t), numel(e_tot));
-    figure('visible', showFigs)
-    plot(t(1:min_t), e_tot(1:min_t), '-k', 'LineWidth', 3)
-    hold on
-    plot(t(1:min_t), e_x(1:min_t), '--b', 'LineWidth', 2)
-    plot(t(1:min_t), e_y(1:min_t), '-.g', 'LineWidth', 2)
-    plot(t(1:min_t), e_eta(1:min_t), ':r', 'LineWidth', 2)
-    x1 = xline(t(params.cutoff_idx), '-.');
-    hold off
-    ylim([0, min(100, max(e_tot))])
-    xlim([0, t(min_t)])
-    
-    global rank_trunc
-    title({['\textbf{Relative Error of Reference Wave vs. DMD Predicted Wave}']
-        ['$e^n = \frac{\vert\vert \xi^n - \xi_{DMD}^n \vert\vert_2}{\vert\vert \xi^n \vert\vert_2} \qquad r = '...
-        num2str(rank_trunc) '$']}, 'interpreter', 'latex')
-    xlabel('time (s)', 'interpreter', 'latex')
-    ylabel('error (\%)', 'interpreter', 'latex')
-    legend('e_{tot}', 'e_{x}', 'e_{y}', 'e_{\eta}', 'train data cut-off', 'Location', 'best')
-    suffix2 = get_suffix2;
-    saveas(gcf, [pwd '\Plots\Error\error' suffix2 '.png'])
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function Y_pred = predict_DMD(g_3D, Phi, D, b, params)
-    Y_pred = zeros(size(g_3D, 1), params.num_pred);
-    Y_im = zeros(size(g_3D, 1), params.num_pred);
-    Y_pred(:, 1) = g_3D(:, 1);
-    Y_im(:, 1) = imag(g_3D(:, 1));
-    for i = 2:params.num_pred
-        Y = Phi * ((D .^ i) * b);
-        Y_im(:, i) = imag(Y);
-        Y_next = real(Y);
-        Y_pred(:, i) = Y_next;
-    end
-    mean_Y_im = mean(Y_im(:))
-    max_Y_im = max(abs(Y_im(:)))
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function g_3D = prep_data(amd)
-    % using only amr 2 data for DMD based on data analysis results
-    g2_fields = fieldnames(amd.list_AMR2);
-
-    % build 3D matrix and extract wanted columns
-    % headers are currently: [level, t, q[1], x, y, eta, aux]
-    g_3D = ones(amd.mins_AMR2,...
-        size(amd.list_AMR2.(g2_fields{2}), 2), numel(g2_fields));  % time x col x gauge_id
-    for i = 1:numel(g2_fields)
-        g_3D(:, :, i) = amd.list_AMR2.(g2_fields{i})(1:amd.mins_AMR2, :);
-    end
-    g_3D = g_3D(:, 4:6, :);  % extract [x, y, eta] where eta surface level (water height + bathmetry)
-
-    % flatten along time dimension and transpose s.t. all times in single column 3D --> 2D
-    g_3D = reshape(g_3D, [size(g_3D, 1), (size(g_3D, 2) * size(g_3D, 3))])';
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function [gmin, min_size] = find_min_mat(gsize, min_size, gmin, gfields, k)
-    if gsize < min_size
-        gmin = gfields{k};
-        min_size = gsize;
-    end
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function AMD = mins_AMR(gauges_struct, gfields) %AMR Mins Data
-global showFigs
-% Find which data contains AMR level 1, 2, or both
-AMD.lastt_AMR1 = []; AMD.lastt_AMR2 = []; AMD.lastt_AMRb = [];
-AMD.xy0_AMR1_all = []; AMD.xy0_AMR2_all = []; AMD.xy0_AMRb_all = [];
-AMD.xyT_AMR2_all = [];
-AMD.mins_AMR1 = Inf; AMD.mins_AMR2 = Inf; AMD.mins_AMRb = Inf;
-AMD.gmin_AMR1 = 'None'; AMD.gmin_AMR2 = 'None'; AMD.gmin_AMRb = 'None';
-% categorize AMR L1, L2, and L3 data
-for i = 1:numel(gfields)
-    g_mat = gauges_struct.(gfields{i});
-    % multiply first column (AMR level #: 1 or 2) by ones vector
-    sum_col1 = ones(1, size(g_mat, 1)) * g_mat(:, 1);
-    % check if adds to num rows, double num rows, or neither
-    if sum_col1 == size(g_mat, 1)
-        AMD.list_AMR1.(gfields{i}) = g_mat;  % add to list
-        AMD.lastt_AMR1 = [AMD.lastt_AMR1,...
-            g_mat(size(g_mat, 1), 2)];
-        AMD.xy0_AMR1_all = [AMD.xy0_AMR1_all, [g_mat(1, 4); g_mat(1, 5)]];  % get IC coor
-        [AMD.gmin_AMR1, AMD.mins_AMR1] = ...
-            find_min_mat(size(g_mat, 1), AMD.mins_AMR1,...
-            AMD.gmin_AMR1, gfields, i);  % get min
-    elseif sum_col1 == 2 * size(g_mat, 1)
-        AMD.list_AMR2.(gfields{i}) = g_mat;
-        AMD.lastt_AMR2 = [AMD.lastt_AMR2,...
-            g_mat(size(g_mat, 1), 2)];
-        AMD.xyT_AMR2_all = [AMD.xyT_AMR2_all, [g_mat(size(g_mat, 1), 4); g_mat(size(g_mat, 1), 5)]];
-        AMD.xy0_AMR2_all = [AMD.xy0_AMR2_all, [g_mat(1, 4); g_mat(1, 5)]];
-        [AMD.gmin_AMR2, AMD.mins_AMR2] =...
-            find_min_mat(size(g_mat, 1), AMD.mins_AMR2,...
-            AMD.gmin_AMR2, gfields, i);
-    else
-        AMD.list_AMRb.(gfields{i}) = g_mat;
-        AMD.lastt_AMRb = [AMD.lastt_AMRb, g_mat(size(g_mat, 1), 2)];
-        AMD.xy0_AMRb_all = [AMD.xy0_AMRb_all, [g_mat(1, 4); g_mat(1, 5)]];
-        [AMD.gmin_AMRb, AMD.mins_AMRb] =...
-            find_min_mat(size(g_mat, 1), AMD.mins_AMRb, AMD.gmin_AMRb, gfields, i);
-    end
-end
-
-global num_gauges num_times
-num_gauges = numel(fieldnames(AMD.list_AMR2));
-num_times = AMD.mins_AMR2;
-
-% plot ending times
-max_t = ceil(max(max(max(AMD.lastt_AMR1), max(AMD.lastt_AMR2)), max(AMD.lastt_AMRb)));
-suffix1 = get_suffix1;
-figure('visible', showFigs)
-subplot(3, 1, 1)
-histogram(AMD.lastt_AMR1, 'BinEdges', 0:0.1:max_t)
-title('AMR1')
-ylabel('number gauges')
-subplot(3, 1, 2)
-histogram(AMD.lastt_AMR2, 'BinEdges', 0:0.1:max_t)
-title('AMR2')
-ylabel('number gauges')
-subplot(3, 1, 3)
-histogram(AMD.lastt_AMRb, 'BinEdges', 0:0.1:max_t)
-title('AMR1&2')
-xlabel('time, t (s)')
-ylabel('number gauges')
-sgtitle('Lifetime of Gauges')
-saveas(gcf, [pwd '\Plots\Gauges Lifetime\lifetime_gauges' suffix1 '.png'])
-% plot data starting points with AMR1 as red and AMR2 as blue and AMRb as green
-figure('visible', showFigs)
-if numel(AMD.xy0_AMR1_all) > 0
-    plot(AMD.xy0_AMR1_all(1, :), AMD.xy0_AMR1_all(2, :), 'r.')
-else
-    plot(0, 10, 'r.')
-end
-hold on
-if numel(AMD.xy0_AMR2_all) > 0
-    plot(AMD.xy0_AMR2_all(1, :), AMD.xy0_AMR2_all(2, :), 'b*')
-else
-    plot(0, 10, 'b*')
-end
-if numel(AMD.xy0_AMRb_all) > 0
-    plot(AMD.xy0_AMRb_all(1, :), AMD.xy0_AMRb_all(2, :), 'go')
-else
-    plot(0, 10, 'go')
-end
-hold off
-title('Different AMR Level Initial Conditions')
-xlabel('x')
-ylabel('y')
-legend('AMR 1', 'AMR 2', 'AMR 1&2')
-saveas(gcf, [pwd '\Plots\AMR IC\amr_ic' suffix1 '.png'])
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function [Phi, D, b, t_svd] = lDMD(Y, r)
-global showFigs U_dmd S_dmd V_dmd
-% 1. split Y matrix into Y1 and Y2
-Y1 = Y(:, 1:(size(Y, 2) - 1));
-Y2 = Y(:, 2:size(Y, 2));
-
-global t_svd
-if isempty(U_dmd)
-    tstart = tic();
-    % 2. svd of Y1
-    [U_dmd, S_dmd, V_dmd] = svd(Y1, 0);
-
-    [rel_energy_Sr, sum_S] = sv_analysis(S_dmd);
-    if isequal('Compute', r)
-        % 3. rank truncated SVD, choose rank r based on SV energy
-        for i=1:size(rel_energy_Sr, 1)
-            if (S_dmd(i, i) / sum_S) < 10e-4
-                r = i
-                break
-            end
-        end
-    end
-    t_svd = toc(tstart);
-end
-global rank_trunc
-rank_trunc = r;
-
-% 4. Compute K_tilde = U'*Y2*V*inv(S) = U'KU (K projected on dominant modes)
-K_tilde = U_dmd(:, 1:r)' * Y2 * V_dmd(:, 1:r) / S_dmd(1:r, 1:r);
-
-% 5. eig decomposition of K_tilde = eig decomp of K
-[W, D] = eig(K_tilde);
-D = sparse(D);
-
-% 345b. check rank truncation has complex conjugate
-[U, S, V, K_tilde, W, D, r] = check_rank_trunc(U_dmd, S_dmd, V_dmd, K_tilde, W, D, r, Y2);
-
-plot_EV(D)
-
-% 6. eig vector K = Y2*V*inv(S)*W ~= U*W (W = eigenvector K_tilde)
-Phi = U * W;  % note this is projected DMD mode not exact DMD mode
-
-% get IC b = pinv(Phi)* x0
-b = Phi \ Y(:, 1);
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function plot_EV(D)
-global showFigs
-figure('visible', showFigs)
-plot(real(D(~(abs(D) > 1))), imag(D(~(abs(D) > 1))), 'bo', 'LineWidth', 1)
-hold on
-plot(real(D(abs(D) > 1)), imag(D(abs(D) > 1)), 'ro', 'LineWidth', 1)
-title({'Eigenvalues of $K$ where $\xi_{n+1} = K \xi_n$'}, 'interpreter', 'latex')
-xlabel('Re\{D\}', 'interpreter', 'latex')
-ylabel('Im\{D\}', 'interpreter', 'latex')
-theta = 0:0.01:(2*pi);
-plot(cos(theta), sin(theta), 'k--')
-hold off
-legend('$|D| \leq 1$', '$|D| > 1$', 'interpreter', 'latex', 'Location', 'best')
-saveas(gcf, [pwd '\Plots\LDMD Spectral Analysis\ev_uc_K' get_suffix1 '.png'])
-xlim([min(min(real(D)))*1.10, max(max(real(D)))*1.10])
-ylim([min(min(imag(D)))*1.10, max(max(imag(D)))*1.10])
-legend('$|D| \leq 1$', '$|D| > 1$', 'interpreter', 'latex', 'Location', 'best')
-saveas(gcf, [pwd '\Plots\LDMD Spectral Analysis\ev_K' get_suffix1 '.png'])
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function [U, S, V, K_tilde, W, D, r] = check_rank_trunc(U, S, V, K_tilde, W, D, r, Y2)
-global rank_trunc
-if ((~(real(D(end) - D(end-1, end-1)) == 0))...
-        || (~(imag(D(end) + D(end-1, end-1)) == 0)))
-    r = r+1;
-    rank_trunc = r;
-
-    % 4. Compute K_tilde = U'*Y2*V*inv(S) = U'KU (K projected on dominant modes)
-    K_tilde = U(:, 1:r)' * Y2 * V(:, 1:r) / S(1:r, 1:r);
-
-    % 5. eig decomposition of K_tilde = eig decomp of K
-    [W, D] = eig(K_tilde);
-    D = sparse(D);
-end
-U = U(:, 1:r);
-S = S(1:r, 1:r);
-V = V(:, 1:r);
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function [rel_energy_Sr, sum_S] = sv_analysis(S)
-global showFigs
-% plot singular value decay on logarithmic scale
-figure('visible', showFigs)
-semilogy(diag(S) ./ S(1, 1), 'LineWidth', 3)
-grid on
-title('Logarithmic Singular Value Decay Relative to \sigma_1')
-ylabel('$log\frac{\sigma_i}{\sigma_1}$', 'interpreter', 'latex')
-xlabel('index (i)')
-xlim([1 300])
-saveas(gcf, [pwd '\Plots\Singular Value Decay\sv_decay' get_suffix1 '.png'])
-% plot relative energy of singular values
-sum_S = ones(1, size(S, 1)) * (diag(S));
-rel_energy_Sr = cumsum((diag(S))) ./ sum_S;
-figure('visible', showFigs)
-plot(rel_energy_Sr,'LineWidth',2.0)
-title('Relative Energy of Rank Truncated Singular Values')
-ylabel({'$\sum_{i = 1:r} \sigma_i / \sum_{j = 1:m} \sigma_j$'},...
-    'interpreter', 'latex')
-xlabel('Rank Truncation (r)')
-xlim([1, 10])
-saveas(gcf, [pwd '\Plots\Singular Value Relative Energy\sv_energy'...
-    get_suffix1 '.png'])
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function create_video(ttl, Y_pred, num_frames, grid_res, T, amd)
-global showFigs
-Y_pred = Y_pred(:, 1:T);
-
-% extract x, y, and surface height components from prediction
-[Y_predX_all, Y_predY_all, Y_predZ_all] = extract_XYZ(Y_pred);
-
-% at final time step, get rid of outlier points using Mahalanobis distance
-m_dist = get_mdist(Y_predX_all, Y_predY_all);
-mdist_min = 1; % mean(m_dist);
-[Y_predX_all, Y_predY_all, Y_predZ_all] = extract_mdist_XYZ(Y_predX_all,...
-    Y_predY_all, Y_predZ_all, m_dist, mdist_min);
-
-% skip a few time steps for plotting/movie speed-up
-num_frames = min(num_frames, size(Y_predX_all, 2));
-[Y_predX, Y_predY, Y_predZ] = skip_times(Y_predX_all, Y_predY_all,...
-    Y_predZ_all, num_frames);
-g2_fields = fieldnames(amd.list_AMR2);
-t = amd.list_AMR2.(g2_fields{1})(1:amd.mins_AMR2, 2);
-t = t(1:T);
-t = t(1:round(end/num_frames):end);
-
-% find min and max of Y_predZ
-[min_X, max_X] = min_max(Y_predX);
-[min_Z, max_Z] = min_max(Y_predZ);
-
-% create video object
-suffix2 = get_suffix2;
-v = VideoWriter([pwd '\Videos\Individual\' ttl '-'...
-    num2str(size(Y_predX_all, 2)) suffix2 '.avi']);
-open(v);
-
-for i = 1:min(size(Y_predX, 2), num_frames)
-    % create linespace for meshgrid
-    num_grid_x = round(abs(min(Y_predX(:, i)) - max(Y_predX(:, i))) * grid_res);
-    num_grid_y = round(abs(min(Y_predY(:, i)) - max(Y_predY(:, i))) * grid_res);
-    xlin = linspace(min(Y_predX(:, i)),max(Y_predX(:, i)),num_grid_x);
-    ylin = linspace(min(Y_predY(:, i)),max(Y_predY(:, i)),num_grid_y);
-    % create meshgrid
-    [X, Y] = meshgrid(xlin, ylin);
-    % interpolate to create surface
-    f = scatteredInterpolant(Y_predX(:, i), Y_predY(:, i), Y_predZ(:, i));
-    Z = f(X, Y);
-    % create frames of video
-    figure('visible', 'off')
-    mesh(X, Y, Z)
-    axis tight; hold on
-    plot3(Y_predX(:, i),Y_predY(:, i),Y_predZ(:, i),'.','MarkerSize',15) %nonuniform
-    hold off
-    xlim([min_X max_X])
-    zlim([min_Z max_Z])
-    title({['\textbf{' ttl ' wave}']
-        ['t = ' num2str(t(i))]}, 'interpreter', 'latex')
-    ylabel('Direction of Flow (m)')
-    xlabel({'Direction $\perp$ to Flow (m)'}, 'interpreter', 'latex')
-    zlabel('Water Height (m)')
-    legend('Interpolated Surface', 'Datapoints', 'Location','best')
-    writeVideo(v, getframe(gcf));
-end
-close(v)
-title({['\textbf{Final time snapshot - ' ttl '}']
-    ['t = ' num2str(t(i))]}, 'interpreter', 'latex')
-saveas(gcf, [pwd '\Plots\Waveform Snapshot\' ttl '-T'...
-    num2str(mdist_min) suffix2 '.png'])
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function create_comp_video(ttl, Y_pred, Y, num_frames, grid_res, T, amd)
-global showFigs
-Y_pred = Y_pred(:, 1:T);
-Y = Y(:, 1:T);
-
-% extract x, y, and surface height components from prediction
-[Y_predX_all, Y_predY_all, Y_predZ_all] = extract_XYZ(Y_pred);
-[Y_X_all, Y_Y_all, Y_Z_all] = extract_XYZ(Y);
-
-% at final time step, get rid of outlier points using Mahalanobis distance
-m_dist_pred = get_mdist(Y_predX_all, Y_predY_all);
-m_dist_ref = get_mdist(Y_X_all, Y_Y_all);
-
-% XY_mat = [[Y_predX_all(:, end); Y_X_all(:, end)],...
-%     [Y_predY_all(:, end); Y_Y_all(:, end)]];
-% m_dist = mahal(XY_mat, XY_mat);
-% m_dist_pred = m_dist(1:size(Y_predX_all, 1));
-% m_dist_ref = m_dist(size(Y_predX_all, 1):end);
-
-mdist_min = 1; % mean(m_dist);
-[Y_predX_all, Y_predY_all, Y_predZ_all] = extract_mdist_XYZ(Y_predX_all,...
-    Y_predY_all, Y_predZ_all, m_dist_pred, mdist_min);
-[Y_X_all, Y_Y_all, Y_Z_all] = extract_mdist_XYZ(Y_X_all, Y_Y_all,...
-    Y_Z_all, m_dist_ref, mdist_min);
-
-% skip a few time steps for plotting/movie speed-up
-num_frames = min(min(num_frames, size(Y_predX_all, 2)), size(Y_X_all, 2));
-[Y_predX, Y_predY, Y_predZ] = skip_times(Y_predX_all, Y_predY_all,...
-    Y_predZ_all, num_frames);
-[Y_X, Y_Y, Y_Z] = skip_times(Y_X_all, Y_Y_all, Y_Z_all, num_frames);
-g2_fields = fieldnames(amd.list_AMR2);
-t = amd.list_AMR2.(g2_fields{1})(1:amd.mins_AMR2, 2);
-t = t(1:T);
-t = t(1:round(end/num_frames):end);
-
-% find min and max of Y_predZ
-[min_Xpred, max_Xpred] = min_max(Y_predX);
-[min_X, max_X] = min_max(Y_X);
-min_X = min(min_X, min_Xpred);
-max_X = max(max_X, max_Xpred);
-[min_Zpred, max_Zpred] = min_max(Y_predZ);
-[min_Z, max_Z] = min_max(Y_Z);
-min_Z = min(min_Z, min_Zpred);
-max_Z = max(max_Z, max_Zpred);
-
-% create video object
-suffix2 = get_suffix2;
-v = VideoWriter([pwd '\Videos\Comparison\' ttl '-'...
-    num2str(size(Y_predX_all, 2)) suffix2 '.avi']);
-open(v);
-
-for i = 1:min(size(Y_predX, 2), num_frames)
-    % create linespace for meshgrid
-    min_Xframe = min(min(Y_predX(:, i)), min(Y_X(:, i)));
-    max_Xframe = max(max(Y_predX(:, i)), max(Y_X(:, i)));
-    num_grid_x = round(abs(min_Xframe - max_Xframe) * grid_res);
-    min_Yframe = min(min(Y_predY(:, i)), min(Y_Y(:, i)));
-    max_Yframe = max(max(Y_predY(:, i)), max(Y_Y(:, i)));
-    num_grid_y = round(abs(min_Yframe - max_Yframe) * grid_res);
-    xlin = linspace(min_Xframe,max_Xframe,num_grid_x);
-    ylin = linspace(min_Yframe,max_Yframe,num_grid_y);
-    % create meshgrid
-    [X, Y] = meshgrid(xlin, ylin);
-    % interpolate to create surface
-    fpred = scatteredInterpolant(Y_predX(:, i), Y_predY(:, i), Y_predZ(:, i));
-    Zpred = fpred(X, Y);
-    % create frames of video
-    figure('visible', 'off')
-    mesh(X, Y, Zpred)
-    axis tight; hold on
-    plot3(Y_predX(:, i),Y_predY(:, i),Y_predZ(:, i),'.','MarkerSize',15) %nonuniform
-    plot3(Y_X(:, i),Y_Y(:, i),Y_Z(:, i),'.','MarkerSize',15) %nonuniform
-    hold off
-    xlim([min_X max_X])
-    zlim([min_Z max_Z])
-    title({['\textbf{Predict vs. Actual Comparison}']
-        ['t = ' num2str(t(i))]}, 'interpreter', 'latex')
-    ylabel('Direction of Flow (m)')
-    xlabel({'Direction $\perp$ to Flow (m)'}, 'interpreter', 'latex')
-    zlabel('Water Height (m)')
-    legend('Interpolated Surface', 'Reduced Order Model', 'Full Order Model')
-    writeVideo(v, getframe(gcf));
-end
-close(v)
-title({['\textbf{Final time snapshot | ' ttl '}']
-    ['t = ' num2str(t(i))]}, 'interpreter', 'latex')
-legend('Interpolated Surface', 'Reduced Order Model', 'Full Order Model')
-saveas(gcf, [pwd '\Plots\Waveform Snapshot\' ttl '-T'...
-    num2str(mdist_min) suffix2 '.png'])
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function [min_A, max_A] = min_max(A)
-% expects matrix input, finds max and min element in matrix
-min_A = min(min(A));
-max_A = max(max(A));
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function [Y_x, Y_y, Y_z] = extract_XYZ(Y)
-Y_x = Y(1:3:end, :);
-Y_y = Y(2:3:end, :);
-Y_z = Y(3:3:end, :);
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function [Y_x, Y_y, Y_z] = extract_mdist_XYZ(Y_x, Y_y, Y_z, m_dist, mdist_min)
-Y_x = Y_x(m_dist < mdist_min, :);
-Y_y = Y_y(m_dist < mdist_min, :);
-Y_z = Y_z(m_dist < mdist_min, :);
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function m_dist = get_mdist(Y_predX_all, Y_predY_all)
-    XY_mat = [Y_predX_all(:, end), Y_predY_all(:, end)];
-    m_dist = mahal(XY_mat, XY_mat);
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function [Y_x, Y_y, Y_z] = skip_times(Y_x, Y_y, Y_z, num_frames)
-Y_x = Y_x(:, 1:round(end/num_frames):end);
-Y_y = Y_y(:, 1:round(end/num_frames):end);
-Y_z = Y_z(:, 1:round(end/num_frames):end);
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function suffix1 = get_suffix1
-global sim_number num_gauges num_times
-suffix1 = ['_s' num2str(sim_number) '_g' num2str(num_gauges) '_t'...
-    num2str(num_times)];
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function suffix2 = get_suffix2
-global rank_trunc cutoff
-suffix2 = [num2str(get_suffix1) '_r' num2str(rank_trunc) '_c' num2str(cutoff)];
-end
