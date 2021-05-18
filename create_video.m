@@ -1,4 +1,4 @@
-function create_video(ttl, Y_pred, params, AMR2, gauges_struct)
+function create_video(ttl, Y_pred, params, AMR, gauges_struct)
 global showFigs
 Y_pred = Y_pred(:, 1:params.T);
 
@@ -15,8 +15,8 @@ mdist_min = 1; % mean(m_dist);
 num_frames = min(params.num_frames, size(Y_predX_all, 2));
 [Y_predX, Y_predY, Y_predZ] = skip_times(Y_predX_all, Y_predY_all,...
     Y_predZ_all, num_frames);
-g2_fields = fieldnames(AMR2.gauge_numbers);
-t = gauges_struct.(g2_fields{1})(1:AMR2.dt_final, 2);
+g2_fields = fieldnames(AMR.AMR2.gauge_numbers);
+t = gauges_struct.(g2_fields{1})(1:AMR.AMR2.dt_final, 2);
 t = t(1:params.T);
 t = t(1:round(end/num_frames):end);
 

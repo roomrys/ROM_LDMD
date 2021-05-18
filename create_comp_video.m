@@ -1,4 +1,4 @@
-function create_comp_video(ttl, Y_pred, Y, params, AMR2, gauges_struct)
+function create_comp_video(ttl, Y_pred, Y, params, AMR, gauges_struct)
 global showFigs
 Y_pred = Y_pred(:, 1:params.T);
 Y = Y(:, 1:params.T);
@@ -28,8 +28,8 @@ num_frames = min(min(params.num_frames, size(Y_predX_all, 2)), size(Y_X_all, 2))
 [Y_predX, Y_predY, Y_predZ] = skip_times(Y_predX_all, Y_predY_all,...
     Y_predZ_all, num_frames);
 [Y_X, Y_Y, Y_Z] = skip_times(Y_X_all, Y_Y_all, Y_Z_all, num_frames);
-g2_fields = fieldnames(AMR2.gauge_numbers);
-t = gauges_struct.(g2_fields{1})(1:AMR2.dt_final, 2);
+g2_fields = fieldnames(AMR.AMR2.gauge_numbers);
+t = gauges_struct.(g2_fields{1})(1:AMR.AMR2.dt_final, 2);
 t = t(1:params.T);
 t = t(1:round(end/num_frames):end);
 

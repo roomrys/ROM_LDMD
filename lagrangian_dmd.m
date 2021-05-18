@@ -4,11 +4,13 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 clear all
 close all
-global sim_number showFigs err isScaled
+global sim_number showFigs err isScaled all_amr art_stab
 sim_number = 9;
 showFigs = 'off';
 err = 2;
 isScaled = false;
+all_amr = true;
+art_stab = true;
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % 0. load data (in form [level, time, q[1], x, y, aux] R:(N x 6))
 disp('Loading data...')
@@ -27,14 +29,13 @@ runtimes.('LoadData') = toc(tstart);
 % 1. data analysis: adaptive mesh refinement
 disp('Starting data analysis...')
 tstart = tic;
-amr2 = categorize_AMR(gauges_struct);
+amr = categorize_AMR(gauges_struct);
 runtimes.('DataAnalysis') = toc(tstart);
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % 2. prep data
 disp('Starting data preparation...')
 tstart = tic;
-[g_3Da, scale] = prep_data(gauges_struct, amr2, isScaled);
-scale
+[g_3Da, scale, offset] = prep_data(gauges_struct, amr, isScaled);
 params.cutoff_idx = round(size(g_3Da, 2)*0.8);
 global cutoff
 cutoff = params.cutoff_idx;
@@ -46,11 +47,10 @@ params.create_vid = false;
 params.num_frames = 300;
 params.num_pred = size(g_3Da, 2);
 params.grid_res = 10;
-g2_fields = fieldnames(amr2.gauge_numbers);
+g2_fields = fieldnames(amr.AMR2.gauge_numbers);
 params.cutoff_time = gauges_struct.(g2_fields{1})(params.cutoff_idx, 2);
 r = fliplr(4:4:68); %'Compute'
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
 rtime_all = [];
 error_all = [];
 for rank = r
@@ -60,6 +60,9 @@ for rank = r
 disp('Starting Lagrangian DMD...')
 tstart = tic;
 [Phi, D, b, t_svd] = lDMD(g_3D, rank);
+if art_stab
+    D(abs(D) > 1) = 1;
+end
 save([pwd '\Matrices\LDMD Spectral Analysis\D' get_suffix1 '.mat'], 'D')
 runtimes.('Offline') = toc(tstart) + t_svd;
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -72,15 +75,15 @@ rtime_all = [rtime_all; [runtimes.('Offline'), runtimes.('Online')]];
 % scale back to normal size
 if isScaled
     for i = (1:3)
-        g_3Da(i:3:end, :) = g_3Da(i:3:end, :) * scale(i);
-        Y_pred(i:3:end, :) = Y_pred(i:3:end, :) * scale(i);
+        g_3Da(i:3:end, :) = (g_3Da(i:3:end, :) + offset(i)) * scale(i) ;
+        Y_pred(i:3:end, :) = (Y_pred(i:3:end, :) + offset(i)) * scale(i);
     end
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % 5. plot error e = yn - yn_DMD
 disp('Starting error analysis...')
 tstart = tic;
-[e_x, e_y, e_eta] = error_analysis(g_3Da, Y_pred, amr2, gauges_struct, params);
+[e_x, e_y, e_eta] = error_analysis(g_3Da, Y_pred, amr, gauges_struct, params);
 runtimes.('ErrorAnalysis') = toc(tstart);
 error_all = [error_all; [mean(e_x(1:params.cutoff_idx)),...
     mean(e_y(1:params.cutoff_idx)), mean(e_eta(1:params.cutoff_idx))]];
@@ -143,9 +146,9 @@ disp('Creating output videos...')
 tstart = tic;
 if params.create_vid
     params.T = min(size(Y_pred, 2), size(g_3Da, 2));
-    create_comp_video('ROMvsFOM', Y_pred, g_3Da, params, amr2, gauges_struct)
-    create_video('ROM', Y_pred(:, 1:params.T), params, amr2, gauges_struct)
-    create_video('FOM', g_3Da(:, 1:params.T), params, amr2, gauges_struct)
+    create_comp_video('ROMvsFOM', Y_pred, g_3Da, params, amr, gauges_struct)
+    create_video('ROM', Y_pred(:, 1:params.T), params, amr, gauges_struct)
+    create_video('FOM', g_3Da(:, 1:params.T), params, amr, gauges_struct)
 end
 runtimes.('CreateVideos') = toc(tstart)
 end

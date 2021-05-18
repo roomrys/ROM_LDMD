@@ -1,4 +1,4 @@
-function [e_x, e_y, e_eta] = error_analysis(g_3D, Y_pred, AMR2, gauges_struct, params)
+function [e_x, e_y, e_eta] = error_analysis(g_3D, Y_pred, AMR, gauges_struct, params)
     global showFigs err rank_trunc
     % find minimum dimensions
     [row_g3D, col_g3D] = size(g_3D);
@@ -31,8 +31,8 @@ function [e_x, e_y, e_eta] = error_analysis(g_3D, Y_pred, AMR2, gauges_struct, p
         e_eta = 100*vecnorm((g_3D(3:3:min_row, 1:min_col) - Y_pred(3:3:min_row, 1:min_col)))...
             ./ g_maxeta;
     end
-    g2_fields = fieldnames(AMR2.gauge_numbers);
-    t = gauges_struct.(g2_fields{1})(1:AMR2.dt_final, 2);
+    g2_fields = fieldnames(AMR.AMR2.gauge_numbers);
+    t = gauges_struct.(g2_fields{1})(1:AMR.AMR2.dt_final, 2);
     min_t = min(numel(t), numel(e_x));
     max_y = max([e_x; e_eta; e_y], [], 'all');
     min_y = min([e_x; e_eta; e_y], [], 'all');
