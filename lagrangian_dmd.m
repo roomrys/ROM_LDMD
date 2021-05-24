@@ -61,8 +61,12 @@ disp('Starting Lagrangian DMD...')
 tstart = tic;
 [Phi, D, b, t_svd] = lDMD(g_3D, rank);
 if art_stab
-    D(abs(D) > 1) = 1;
+    [theta_D, rho_D] = cart2pol(imag(D), real(D));
+    rho_D(rho_D > 1) = 1 - (rho_D(rho_D > 1) - 1);
+    [im_D, re_D] = pol2cart(theta_D, rho_D);
+    D = re_D + 1i*im_D;
 end
+plot_EV(D)
 save([pwd '\Matrices\LDMD Spectral Analysis\D' get_suffix1 '.mat'], 'D')
 runtimes.('Offline') = toc(tstart) + t_svd;
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

@@ -36,8 +36,6 @@ D = sparse(D);
 % 345b. check rank truncation has complex conjugate
 [U, S, V, K_tilde, W, D, r] = check_rank_trunc(U_dmd, S_dmd, V_dmd, K_tilde, W, D, r, Y2);
 
-plot_EV(D)
-
 % 6. eig vector K = Y2*V*inv(S)*W ~= U*W (W = eigenvector K_tilde)
 Phi = U * W;  % note this is projected DMD mode not exact DMD mode
 

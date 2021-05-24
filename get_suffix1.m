@@ -8,7 +8,7 @@ if all_amr
     strg = strcat(strg, 'A');
 end
 if art_stab
-    strg = strcat(strg, '(as)');
+    strg = strcat(strg, '(AS)');
 end
 suffix1 = ['_s' num2str(sim_number) strg '_g' num2str(num_gauges) '_t'...
     num2str(num_times)];
