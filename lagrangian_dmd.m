@@ -10,7 +10,7 @@ showFigs = 'off';
 err = 2;
 isScaled = false;
 all_amr = true;
-art_stab = true;
+art_stab = false;
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % 0. load data (in form [level, time, q[1], x, y, aux] R:(N x 6))
 disp('Loading data...')
@@ -74,23 +74,28 @@ runtimes.('Offline') = toc(tstart) + t_svd;
 disp('Starting predictions...')
 tstart = tic();
 Y_pred = predict_DMD(g_3D, Phi, D, b, params);
+clear b Phi D re_D im_D rho_D theta_D
 runtimes.('Online') = toc(tstart);
 rtime_all = [rtime_all; [runtimes.('Offline'), runtimes.('Online')]];
 % scale back to normal size
+global n_gauges
 if isScaled
-    for i = (1:3)
-        g_3Da(i:3:end, :) = (g_3Da(i:3:end, :) + offset(i)) * scale(i) ;
-        Y_pred(i:3:end, :) = (Y_pred(i:3:end, :) + offset(i)) * scale(i);
+    ii = 1;
+    for jj = (1:3)
+        g_3Da(ii:jj*n_gauges, :) = (g_3Da(ii:jj*n_gauges, :) + offset(jj)) * scale(jj) ;
+        Y_pred(ii:jj*n_gauges, :) = (Y_pred(ii:jj*n_gauges, :) + offset(jj)) * scale(jj);
+        ii = jj + 1;
     end
 end
+clear offset scale
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% 5. plot error e = yn - yn_DMD
+%% 5. plot error e = yn - yn_DMD
 disp('Starting error analysis...')
 tstart = tic;
 [e_x, e_y, e_eta] = error_analysis(g_3Da, Y_pred, amr, gauges_struct, params);
 runtimes.('ErrorAnalysis') = toc(tstart);
-error_all = [error_all; [mean(e_x(1:params.cutoff_idx)),...
-    mean(e_y(1:params.cutoff_idx)), mean(e_eta(1:params.cutoff_idx))]];
+error_all = [error_all; [mean(e_x),...
+    mean(e_y), mean(e_eta)]];
 
 % plot rank dependent plots
 if ~isequal('Compute', r) && (rank == r(end)) && (numel(r) > 1)

@@ -42,9 +42,19 @@ end
 AMR.dt_diff = [AMR.dt_idx(2:end); 0] - AMR.dt_idx;
 AMR.dt_diff = AMR.dt_diff(1:(end-1));
 
-global num_gauges num_times
-num_gauges = numel(fieldnames(AMR.AMR2.gauge_numbers));
+g1_fields = fieldnames(AMR.AMR1.gauge_numbers);
+g2_fields = fieldnames(AMR.AMR2.gauge_numbers);
+ng1 = numel(g1_fields);
+ng2 = numel(g2_fields);
+global n_gauges2 num_times n_gauges all_amr
+n_gauges2 = ng1+ng2;
 num_times = AMR.AMR2.dt_final;
+
+if all_amr
+    n_gauges = ng1 + ng2;
+else
+    n_gauges = ng1;
+end
 
 % plot ending times
 if numel(lastt_AMR1) > 0

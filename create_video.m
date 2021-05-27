@@ -3,7 +3,10 @@ global showFigs
 Y_pred = Y_pred(:, 1:params.T);
 
 % extract x, y, and surface height components from prediction
-[Y_predX_all, Y_predY_all, Y_predZ_all] = extract_XYZ(Y_pred);
+Y_pred_all = parse_xyh(Y_pred);
+clear Y_pred
+Y_predX_all = Y_pred_all.x; Y_predY_all = Y_pred_all.y; Y_predZ_all = Y_pred_all.h;
+clear Y_pred_all
 
 % at final time step, get rid of outlier points using Mahalanobis distance
 m_dist = get_mdist(Y_predX_all, Y_predY_all);
@@ -64,4 +67,4 @@ for i = 1:min(size(Y_predX, 2), num_frames)
 end
 close(v)
 saveas(gcf, [pwd '\Plots\Waveform Snapshot\' ttl '-T'...
-    num2str(t(i)) suffix2 '.png'])
+num2str(t(i)) suffix2 '.png'])

@@ -4,8 +4,13 @@ Y_pred = Y_pred(:, 1:params.T);
 Y = Y(:, 1:params.T);
 
 % extract x, y, and surface height components from prediction
-[Y_predX_all, Y_predY_all, Y_predZ_all] = extract_XYZ(Y_pred);
-[Y_X_all, Y_Y_all, Y_Z_all] = extract_XYZ(Y);
+Y_pred_all = parse_xyh(Y_pred);
+clear Y_pred
+Y_all = parse_xyh(Y);
+clear Y
+Y_predX_all = Y_pred_all.x; Y_predY_all = Y_pred_all.y; Y_predZ_all = Y_pred_all.h;
+Y_X_all = Y_all.x; Y_Y_all = Y_all.y; Y_Z_all = Y_all.z;
+clear Y_pred_all Y_all
 
 % at final time step, get rid of outlier points using Mahalanobis distance
 m_dist_pred = get_mdist(Y_predX_all, Y_predY_all);
