@@ -1,14 +1,10 @@
 function [Phi, D, b, t_svd] = lDMD(Y, r)
-global showFigs sim_number chosen_v isScaled
+global showFigs sim_number chosen_v
 % 1. split Y matrix into Y1 and Y2
 Y1 = Y(:, 1:(size(Y, 2) - 1));
 Y2 = Y(:, 2:size(Y, 2));
 
-fname_mat = [pwd '\Matrices\SVD\svd' '_s' num2str(sim_number) '_' join(chosen_v, '')];
-if isScaled
-    fname_mat = [fname_mat '_s'];
-end
-svd_fname = join([fname_mat '.mat'], '');
+svd_fname = join([pwd '\Matrices\SVD\svd' '_s' num2str(sim_number) '_' join(chosen_v, '') '.mat'], '');
 if isfile(svd_fname)
     load(svd_fname);
     U_svd = svd_struct.U;
@@ -34,6 +30,7 @@ else
     t_svd = toc(tstart);
     svd_struct.U = U_svd; svd_struct.S = S_svd; svd_struct.V = V_svd; svd_struct.t = t_svd;
     save(svd_fname, 'svd_struct', '-v7.3')
+    clear svd_struct
 end
 clear svd_struct
 

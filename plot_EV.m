@@ -13,8 +13,8 @@ plot(cos(theta), sin(theta), 'k--')
 hold off
 suffix2 = get_suffix2;
 legend('$|D| \leq 1$', '$|D| > 1$', 'interpreter', 'latex', 'Location', 'best')
-saveas(gcf, [pwd '\Plots\LDMD Spectral Analysis\ev_uc_K' suffix2 '.png'])
+saveas(gcf, join([pwd '\Plots\LDMD Spectral Analysis\ev_uc_K' suffix2 '.png'], ''))
 xlim([min(min(real(D)))*1.10, max(max(real(D)))*1.10])
 ylim([min(min(imag(D)))*1.10, max(max(imag(D)))*1.10])
 legend('$|D| \leq 1$', '$|D| > 1$', 'interpreter', 'latex', 'Location', 'best')
-saveas(gcf, [pwd '\Plots\LDMD Spectral Analysis\ev_K' suffix2 '.png'])
+saveas(gcf, join([pwd '\Plots\LDMD Spectral Analysis\ev_K' suffix2 '.png'], ''))

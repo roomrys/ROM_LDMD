@@ -53,7 +53,7 @@ num_times = AMR.AMR2.dt_final;
 if all_amr
     n_gauges = ng1 + ng2;
 else
-    n_gauges = ng1;
+    n_gauges = ng2;
 end
 
 % plot ending times
@@ -86,7 +86,7 @@ title('AMR1&2')
 xlabel('time, t (s)')
 ylabel('number gauges')
 sgtitle('Lifetime of Gauges')
-saveas(gcf, [pwd '\Plots\Gauges Lifetime\lifetime_gauges' suffix1 '.png'])
+saveas(gcf, join([pwd '\Plots\Gauges Lifetime\lifetime_gauges' suffix1 '.png'], ''))
 % plot data starting points with AMR1 as red and AMR2 as blue and AMRb as green
 figure('visible', showFigs)
 if numel(xy0_AMR1) > 0
@@ -110,4 +110,4 @@ title('Different AMR Level Initial Conditions')
 xlabel('x')
 ylabel('y')
 legend('AMR 1', 'AMR 2', 'AMR 1&2')
-saveas(gcf, [pwd '\Plots\AMR IC\amr_ic' suffix1 '.png'])
+saveas(gcf, join([pwd '\Plots\AMR IC\amr_ic' suffix1 '.png'], ''))

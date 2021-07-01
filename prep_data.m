@@ -1,18 +1,12 @@
-function [g_3D, scale, offset] = prep_data(gauges_struct, AMR, isScaled)
-    % using only amr 2 data for DMD based on data analysis results
+function [g_2D, scale, offset] = prep_data(gauges_struct, chosen, AMR, isScaled)
     g1_fields = fieldnames(AMR.AMR1.gauge_numbers);
     g2_fields = fieldnames(AMR.AMR2.gauge_numbers);
     ng1 = numel(g1_fields);
     ng2 = numel(g2_fields);
-
+    global all_amr n_gauges
+    
     % build 3D matrix and extract wanted columns
     % headers are currently: [level, t, q[1], x, y, eta, aux]
-    global all_amr
-    if all_amr
-        n_gauges = ng1 + ng2;
-    else
-        n_gauges = ng1;
-    end
     g_3D = zeros(AMR.AMR2.dt_final,...
         size(gauges_struct.(g2_fields{2}), 2),...
         n_gauges);  % time x states x gauges
@@ -42,27 +36,34 @@ function [g_3D, scale, offset] = prep_data(gauges_struct, AMR, isScaled)
 
     % flatten along time dimension and transpose s.t. all times in single column 3D --> 2D
     g_3D = reshape(g_3D, [size(g_3D, 1), (size(g_3D, 2) * size(g_3D, 3))])';
-    g_3DX = g_3D(1:3:end, :); g_3DY = g_3D(2:3:end, :); g_3Dh = g_3D(3:3:end, :);
-    g_3D = [g_3DX; g_3DY; g_3Dh];
+    g_2d.x = g_3D(1:3:end, :); g_2d.y = g_3D(2:3:end, :); g_2d.h = g_3D(3:3:end, :);
+    clear g_3D
+    
+    %TO2D: user selected variables only here! (move this to end, only rebuild g_3D at very end)
+    num_chosen = numel(chosen);
+    g_2D = zeros(num_chosen*n_gauges, size(g_2d.x, 2));
+    ii = 1;
+    for jj = (1:num_chosen)
+        g_2D(ii:jj*n_gauges, :) = g_2d.(chosen(jj));
+        ii = jj*n_gauges + 1;
+    end
     
     % scale data
+    %TO2D: user selected variables only here!
+    scale = ones(1, num_chosen);
+    offset = zeros(1, num_chosen);
     if isScaled
-        maxx = [max(g_3DX, [], 'all'),...
-            max(g_3DY, [], 'all'),...
-            max(g_3Dh, [], 'all')];
-        minn = [min(g_3DX, [], 'all'),...
-            min(g_3DY, [], 'all'),...
-            min(g_3Dh, [], 'all')];
-        
-        scale = (maxx - minn) / 2;
-        offset = maxx ./ scale - 1;
-        
+        maxx = zeros(num_chosen, 1);
+        minn = zeros(num_chosen, 1);
+      
         ii = 1;
-        for jj = (1:3)
-            g_3D(ii:jj*n_gauges, :) = g_3D(ii:jj*n_gauges, :) / scale(jj) - offset(jj);
+        %TO2D: user selected variables only here! change jj's (update already sliced g_3D above)
+        for jj = (1:num_chosen)
+            maxx(jj) = max(g_2d.(chosen(jj)), [], 'all');
+            minn(jj) = min(g_2d.(chosen(jj)), [], 'all');
+            scale(jj) = (maxx(jj) - minn(jj)) / 2;
+            offset(jj) = maxx(jj) ./ scale(jj) - 1;
+            g_2D(ii:jj*n_gauges, :) = g_2D(ii:jj*n_gauges, :) / scale(jj) - offset(jj);
             ii = n_gauges*jj + 1;
         end
-    else
-        scale = ones(1, 3);
-        offset = zeros(1, 3);
     end

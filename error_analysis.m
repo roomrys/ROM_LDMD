@@ -1,59 +1,67 @@
-function [e_x, e_y, e_h] = error_analysis(g_3D, Y_pred, AMR, gauges_struct, params)
+function err_struct = error_analysis(G, Y_pred, chosen, AMR, gauges_struct, params)
     global showFigs err rank_trunc
     % find minimum dimensions
-    [row_g3D, col_g3D] = size(g_3D);
+    [row_g3D, col_g3D] = size(G);
     [row_Ypred, col_Ypred] = size(Y_pred);
     min_col = min(col_g3D, col_Ypred);
     min_row = min(row_g3D, row_Ypred);
-    g_3D = g_3D(1:min_row, 1:min_col);
+    G = G(1:min_row, 1:min_col);
     Y_pred = Y_pred(1:min_row, 1:min_col);
     
     % total error of each predicted observable
-    variables = ['x', 'y', 'h'];
-    g_3Dvar = parse_xyh(g_3D);
-    clear g_3D
-    Y_predvar = parse_xyh(Y_pred);
+    % TO2D: user selected variables only here!
+    Gvar = parse_xyh(G, chosen);
+    clear G
+    Y_predvar = parse_xyh(Y_pred, chosen);
     clear Y_pred
+    num_chosen = numel(chosen);
     if err == 2
-        for ii = 1:3
-            error.(variables(ii)) = 100*...
-                vecnorm(g_3Dvar.(variables(ii)) - Y_predvar.(variables(ii)))...
-                ./ vecnorm(g_3Dvar.(variables(ii)));
+        for ii = 1:num_chosen
+            err_struct.(chosen(ii)) = 100*...
+                vecnorm(Gvar.(chosen(ii)) - Y_predvar.(chosen(ii)))...
+                ./ vecnorm(Gvar.(chosen(ii)));
         end
     else
-        for ii = 1:numel(variables)
-            g_max.(variables(ii)) = max(g_3Dvar.(variables(ii)), [], 1);
-            error.(variables(ii)) = 100*...
-                vecnorm(g_3Dvar.(variables(ii)) - Y_predvar.(variables(ii)))...
-                ./ vecnorm(g_max.(variables(ii)));
+        for ii = 1:num_chosen
+            g_max.(chosen(ii)) = max(Gvar.(chosen(ii)), [], 1);
+            err_struct.(chosen(ii)) = 100*...
+                vecnorm(Gvar.(chosen(ii)) - Y_predvar.(chosen(ii)))...
+                ./ vecnorm(g_max.(chosen(ii)));
         end
     end
-    e_x = error.x; e_y = error.y; e_h = error.h;
+    suffix2 = get_suffix2;
+    save(join([pwd '\Matrices\Error' num2str(err) '\err_struct' suffix2 '.mat'], ''), 'err_struct');
     
     % plot error
     g2_fields = fieldnames(AMR.AMR2.gauge_numbers);
     t = gauges_struct.(g2_fields{1})(1:AMR.AMR2.dt_final, 2);
-    min_t = min(numel(t), numel(error.x));
-    max_y = max([error.x; error.y; error.h], [], 'all');
-    min_y = min([error.x; error.y; error.h], [], 'all');
+    min_t = min(numel(t), numel(err_struct.(chosen(1))));
+    error_names = strcat(repmat("e_{", 1, num_chosen), chosen, "}");
+    max_y = -Inf; min_y = Inf;
+    for ii = 1:num_chosen
+        max_y = max([max_y; max(err_struct.(chosen(ii)))], [], 'all');
+        min_y = min([min_y; min(err_struct.(chosen(ii)))], [], 'all');
+    end
+        
+%     max_y = max([err_struct.x; err_struct.y; err_struct.h], [], 'all');
+%     min_y = min([err_struct.x; err_struct.y; err_struct.h], [], 'all');
     figure('visible', showFigs)
     line_style = {'b--', 'g-.', 'r:', 'k-.'};
+    hold on
     if abs(max_y - min_y) > 100
-        hold on
-        for ii = 1:numel(variables)
-            semilogy(t(1:min_t), error.(variables(ii))(1:min_t), line_style{ii}, 'LineWidth', 2)
+        for ii = 1:num_chosen
+            semilogy(t(1:min_t), err_struct.(chosen(ii))(1:min_t), line_style{ii}, 'LineWidth', 2)
         end
         semilogy([t(params.cutoff_idx), t(params.cutoff_idx)], [0.001, 2*max_y], line_style{ii+1}, 'LineWidth', 2);
-        hold off
         grid on
     else
-        hold on
-        for ii = 1:numel(variables)
-            plot(t(1:min_t), error.(variables(ii))(1:min_t), line_style{ii}, 'LineWidth', 2)
+        for ii = 1:num_chosen
+            plot(t(1:min_t), err_struct.(chosen(ii))(1:min_t), line_style{ii}, 'LineWidth', 2)
         end
-        plot([t(params.cutoff_idx), t(params.cutoff_idx)], [0.001, 2*max_y], line_style{ii+1}, 'LineWidth', 2);
-        hold off
+        plot([t(params.cutoff_idx), t(params.cutoff_idx)], [0.001, 2*max_y], line_style{end}, 'LineWidth', 2);
     end
+    legend([error_names, "train data cut-off"], 'Location', 'best')
+    hold off
     axis([0 t(min_t) min_y max_y])
     ttl = ['\textbf{Relative Error of FOM Wave vs. ROM Wave}'];
     if err == 2
@@ -67,22 +75,17 @@ function [e_x, e_y, e_h] = error_analysis(g_3D, Y_pred, AMR, gauges_struct, para
     end
     xlabel('time (s)', 'interpreter', 'latex')
     ylabel('error (\%)', 'interpreter', 'latex')
-    legend('e_{x}', 'e_{y}', 'e_{h}', 'train data cut-off', 'Location', 'best')
-    suffix2 = get_suffix2;
-    saveas(gcf, [pwd '\Plots\Error' num2str(err) '\error' suffix2 '.png'])
-    save([pwd '\Matrices\Error' num2str(err) '\e_x' suffix2 '.mat'], 'e_x')
-    save([pwd '\Matrices\Error' num2str(err) '\e_y' suffix2 '.mat'], 'e_y')
-    save([pwd '\Matrices\Error' num2str(err) '\e_eta' suffix2 '.mat'], 'e_h')
-    save([pwd '\Matrices\Error' num2str(err) '\t' suffix2 '.mat'], 't')
+    saveas(gcf, join([pwd '\Plots\Error' num2str(err) '\error' suffix2 '.png'], ''))
+    save(join([pwd '\Matrices\Error' num2str(err) '\t' suffix2 '.mat'], ''), 't')
 
     % plot largest magnitude observable (if err==3)
     if err ==3
         fig = figure('visible', showFigs);
         for ii = 1:3
             subplot(3, 1, ii)
-            plot(t(1:min_t), g_max.(variables(ii))(1:min_t), line_style{ii}, 'LineWidth', 2)
+            plot(t(1:min_t), g_max.(chosen(ii))(1:min_t), line_style{ii}, 'LineWidth', 2)
             xlim([0, t(min_t)])
-            title(['$\max \vert \xi^n_{' variables(ii) '} \vert$'], 'interpreter', 'latex')
+            title(['$\max \vert \xi^n_{' chosen(ii) '} \vert$'], 'interpreter', 'latex')
         end
         han=axes(fig,'visible','off');
         han.Title.Visible='on';
@@ -92,5 +95,5 @@ function [e_x, e_y, e_h] = error_analysis(g_3D, Y_pred, AMR, gauges_struct, para
         xlabel(han,'time (s)', 'interpreter', 'latex');
         sgtitle({['\textbf{Largest Magnitude Observable of FOM Wave}']
             ['$\max \vert \xi^n \vert$']}, 'interpreter', 'latex');
-        saveas(gcf, [pwd '\Plots\Error' num2str(err) '\max_obsv' suffix2 '.png'])
+        saveas(gcf, join([pwd '\Plots\Error' num2str(err) '\max_obsv' suffix2 '.png'], ''))
     end

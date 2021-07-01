@@ -47,9 +47,9 @@ The basic function of *lagrangian_dmd.m* is to use a FOM with lagrangian data to
 > 
 > **b (vector: [rank trunc] X 1)**: vector used in LDMD Online step where *b* = psuedoinv(*Phi*) * *g_3Da*(:, 1).
 
-### Functions
-> #### categorize_AMR.m
-> The function *AMR2 = **categorize_AMR**(gauges_struct)* iterates through each gauge matrix stored in the data structure *gauges_struct* and determines whether the gauge uses AMR L1, L2, or a mixture of both. The times for which each gauge is active is plotted in a histogram with base-name "lifetime_gauges" which is then saved to the current working directory + "\Plots\Gagues Lifetime\" + file name. The initial position of each gauges is also plotted where different colors correspond to the gauge using a certain AMR level. This plot is saved
+### Functions (separate files)
+> #### categorize_AMR2.m (similar to categorize_AMR.m which returns both AMR_1 and AMRb gauges)
+> The function *AMR2 = **categorize_AMR2**(gauges_struct)* iterates through each gauge matrix stored in the data structure *gauges_struct* and determines whether the gauge uses AMR L1, L2, or a mixture of both. The times for which each gauge is active is plotted in a histogram with base-name "lifetime_gauges" which is then saved to the current working directory + "\Plots\Gagues Lifetime\" + file name. The initial position of each gauges is also plotted where different colors correspond to the gauge using a certain AMR level. This plot is saved
 >>  **Inputs**: 
 >>> **gauges_struct (data structure containing matrices)**: data structure containing gauge ID's or gauge numbers as fieldnames and the states of the corresponding gauge in a matrix where the rows represent a time-step and the columns are organized as shown in the **Table 1** below.
 
@@ -75,19 +75,18 @@ The basic function of *lagrangian_dmd.m* is to use a FOM with lagrangian data to
 >> **Outputs**: 
 >>> **g_3D (matrix: ([gauges] * [observables/gauge]) X [time steps])**: matrix containing observables for the FOM where the rows are organized as shown in **Table 2** and each column is a time step.
 
-|  Row  | g[gauge #]: [data]      |
-|:-----:|-------------------------|
-|   01  | g1: x-coor              |
-|   02  | g1: y-coor              |
-|   03  | g1: surface height      |
-|   04  | g2: x-coor              |
-|       |           ...           |
-|   07  | g3: x-coor              |
-|       |           ...           |
-| N - 2 | g[last]: x-coor         |
-| N - 1 | g[last]: y-coor         |
-|   N   | g[last]: surface height |
-**Table 2**: The rows in the *g_3D* matrix are organized as shown above by stacking all observables (x-coor, y-coor, surface height) for a single gauge and continuing this consecutive stack for all gauges.
+|  Row                 | g[gauge #]: [data]      |
+|:--------------------:|-------------------------|
+|   01                 | g1: x-coor              |
+|   ...                |           ...           |
+|   num gauges         | g[last]:x-coor          |
+|   num gauges + 1     | g1: y-coor              |
+|   ...                |           ...           |
+|   (num gauges)X2     | g[last]:y-coor          |
+|   (num gauges)X2 + 1 | g1: surface height      |
+|   ...                |           ...           |
+|   (num gauges)X3     | g[last]:surface height  |
+**Table 2**: The rows in the *g_3D* matrix are organized as shown above by stacking first the x-coor of all gauges, then the y-coor, and then the surface height.
 
 >>> **scale (double vector: 1 X 3)**: the scale used on each observables (x-coor, y-coor, surface height) to scale the FOM data between [-1, 1].
 >>
@@ -111,29 +110,35 @@ The basic function of *lagrangian_dmd.m* is to use a FOM with lagrangian data to
 >>>
 >>
 > #### predict_DMD.m
-> 
+> The function *Y_pred = **predict_DMD**(g_3D, Phi, D, b, params)* takes care of the online step of DMD (makes the predictions). The predictions are made as follows: Y = Phi * ((D .^ i) * b). This method yields imaginary terms in Y which we ignore in our final answer of Y_pred.
 >> **Inputs**:
->>> 
->> 
->> **Outputs**: 
->>>
+>>> **g_3D (matrix: ([gauges] * [observables/gauge]) X [time steps])**: matrix containing observables for the FOM where the rows are organized as shown in **Table 2** and each column is a time step.
+>>> **Phi (double matrix: ([gauges] * [observables/gauge]) X [rank trunc])**: the truncated eigenvector matrix of the linear operator approximated by LDMD.
+>>> **D (double matrix: [rank trunc] X [rank trunc])**: the truncated (tall rectangular) eigenvalue matrix of the linear operator approximated with DMD.
+>>> **b (vector: [rank trunc] X 1)**: vector used in LDMD Online step where *b* = psuedoinv(*Phi*) * *Y*(:, 1).
+>>> **params (data structure)**: extra parameters that define the problem at hand. In this instance, used for the integer denoting number of predictions wanted *params.num_pred*.
 >>
->>  **Functions**:
->>>
+>> **Outputs**: 
+>>> **Y_pred (double matrix: ([gauges] * [observables/gauge]) X [num predictions in params.num_pred])**: The real parts of the ROM observables predicted.
 >>
 > #### error_analysis.m
-> 
+> The function *function err_struct = **error_analysis**(G, Y_pred, chosen, AMR, gauges_struct, params)* takes care of all the error computation of DMD predicted observables vs. FOM observables.
 >> **Inputs**:
->>>
+>>> **G (matrix: ([gauges] * [observables/gauge]) X [num predictions])**: matrix containing observables for the FOM where the rows are organized as shown in **Table 2** and each column is a time step.
+>>> **Y_pred (double matrix: ([gauges] * [observables/gauge]) X [num predictions in params.num_pred])**: The real parts of the ROM observables predicted.
+>>> **chosen (string matrix: 1 X [number variables to use in LDMD])**: lists the variables to use in LDMD as a matrix of strings i.e. ["x", "y", "h"].
+>>> **AMR (data structure)**: contains information on the adaptive mesh refinement used to obtain the FOM data.
+>>> **gauges_struct (data structure)**: separates each observable by variables i.e. gauges_struct.x contains all observables of the x-coor for each gauge.
+>>> **params (data structure)**: extra parameters that define the problem at hand. In this instance, used for the integer denoting the cut-off index for the training data stored in *params.cutoff_idx*.
 >> 
 >> **Outputs**: 
->>>
+>>> **err_struct (data structure)**: contains information on the error along each variable, i.e. err_struct.x contains all error information for each gauge along the x-coor.
 >>
 >>  **Functions**:
 >>>
 >>
 > #### create_comp_video.m
-> 
+> The function ***create_comp_video**(ttl, Y_pred, Y, params, AMR, gauges_struct)* creates video of the ROM and FOM overlaid.
 >> **Inputs**:
 >>>
 >> 
@@ -144,7 +149,7 @@ The basic function of *lagrangian_dmd.m* is to use a FOM with lagrangian data to
 >>>
 >>
 > #### create_video.m
-> 
+> The function ***create_video**(ttl, Y_pred, params, AMR, gauges_struct)* creates video of just one set of observables (ROM or FOM).
 >> **Inputs**:
 >>>
 >> 
